@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>poe.trade multi-live</title>
+<link rel="stylesheet" href="http://poe.trade/static/gen/packed_dark.css">
+</head>
+<body>
+<div class="row">
+<h1>poe.trade multi-live</h1>
+<p>Place poe.trade search URLs in the box below. Any new items will be tracked here.</p>
+<p>Anything not starting with <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever.</p>
+<textarea style="height: 20em;" id="multilive"></textarea>
+<p id="timer"></p>
+</div>
+<div class="row">
+<div id="items">
+
+</div>
+</div>
+<script src="https://code.jquery.com/jquery-2.2.1.min.js"></script>
+<script type="text/javascript">
+$(window).load(function() {
+    var searches = [];
+    var timer = 5;
+    var last_id = {};
+
+    var autosave = localStorage.getItem("multilive");
+    $("#multilive").val(JSON.parse(autosave));
+
+    var dispatch_search = function(search, id) {
+        $.post("http://poe.trade/search/" + search + "/live", { "id": id }, function(data) {
+            last_id[search] = data["newid"];
+            $("#items").prepend(data["data"]);
+        }).fail(function() {
+            timer = 60;
+        });
+    };
+
+    var refresh = function() {
+        for (var i = 0; i < searches.length; ++i) {
+            var id;
+            if (searches[i] in last_id) {
+                id = last_id[searches[i]];
+            } else {
+                id = -1;
+            }
+
+            dispatch_search(searches[i], id);
+        }
+    };
+
+    setInterval(function() {
+        timer--;
+        if (timer > 0) {
+            $("#timer").text("Refreshing in... " + timer.toString() + " seconds.");
+        } else {
+            $("#timer").text("Refreshing now.");
+            refresh();
+            timer = 30;
+        }
+    }, 1000);
+
+    $("#multilive").on("change keyup paste", function() {
+        var text = $(this).val();
+        var urls = /https?:\/\/poe.trade\/search\/([a-z]+)/g;
+        var match;
+        searches = [];
+        while (match = urls.exec(text)) {
+            searches.push(match[1]);
+        }
+        
+        localStorage.setItem("multilive", JSON.stringify(text));
+    });
+});
+</script>
+</body>
+</html>
