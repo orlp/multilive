@@ -37,7 +37,6 @@ $(window).load(function() {
     $("#multilive").val(JSON.parse(autosave));
 
     var dispatch_search = function(search, id) {
-        console.log(search, id);
         $.getJSON("http://orlp.me/multilive", { "id": id, "search": search }, function(data) {
             last_id[search] = data["newid"];
             if (data["data"] && last_beep < refresh_num) {
