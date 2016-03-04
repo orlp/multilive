@@ -23,7 +23,6 @@
 $(window).load(function() {
     // From poe.trade.
     var whisperMessage = function(o) {
-        console.log(o);
         var item = $(o).parents(".item");
         var bo = item.data("buyout") ? " listed for " + item.data("buyout") : "";
         var message = "@" + item.data("ign") + " Hi, I would like to buy your " + item.data("name") + bo + " in " + item.data("league");
