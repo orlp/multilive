@@ -21,6 +21,10 @@
 <script src="//code.jquery.com/jquery-2.2.1.min.js"></script>
 <script type="text/javascript">
 $(window).load(function() {
+    if (window.location.protocol == "https:") {
+        alert("Multi-live doesn't work on HTTPS, but Github Pages doesn't allow me to disabled it. Please use HTTP.");
+    }
+
     // From poe.trade.
     var whisperMessage = function(o) {
         var item = $(o).parents(".item");
