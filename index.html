@@ -10,7 +10,7 @@
 <h1>poe.trade multi-live</h1>
 <p>Place poe.trade search URLs in the box below. Any new items will be tracked here.</p>
 <p>Anything not starting with <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever.</p>
-<p>For now it's really hacky. The whisper/PM buttons don't work, and you need a <a href="https://chrome.google.com/webstore/detail/allow-control-allow-origi/nlfbmbojpeacfghkpbjhddihlkkiljbi?hl=en">CORS plugin</a> to run.</p>
+<p>For now it's really hacky. The whisper/PM buttons don't work.</p>
 <textarea style="height: 20em;" id="multilive"></textarea>
 <p id="timer"></p>
 </div>
@@ -30,7 +30,8 @@ $(window).load(function() {
     $("#multilive").val(JSON.parse(autosave));
 
     var dispatch_search = function(search, id) {
-        $.post("http://poe.trade/search/" + search + "/live", { "id": id }, function(data) {
+        console.log(search, id);
+        $.getJSON("http://orlp.me/multilive", { "id": id, "search": search }, function(data) {
             last_id[search] = data["newid"];
             $("#items").prepend(data["data"]);
         }).fail(function() {
@@ -58,12 +59,12 @@ $(window).load(function() {
         } else {
             $("#timer").text("Refreshing now.");
             refresh();
-            timer = 30;
+            timer = 5;
         }
     }, 1000);
-
-    $("#multilive").on("change keyup paste", function() {
-        var text = $(this).val();
+    
+    var update_searched = function() {
+        var text = $("#multilive").val();
         var urls = /https?:\/\/poe.trade\/search\/([a-z]+)/g;
         var match;
         searches = [];
@@ -72,7 +73,10 @@ $(window).load(function() {
         }
         
         localStorage.setItem("multilive", JSON.stringify(text));
-    });
+    };
+
+    $("#multilive").on("change keyup paste", update_searched);
+    update_searched();
 });
 </script>
 </body>
