@@ -64,8 +64,7 @@ $(window).load(function() {
             }
 
             $("#items").prepend(data["data"]);
-            $(".whisper-btn").click(sendWhisper);
-
+            $(".whisper-btn").unbind("click").click(sendWhisper);
         }).fail(function() {
             timer = 60;
         });
