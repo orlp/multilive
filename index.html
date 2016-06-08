@@ -9,7 +9,7 @@
 <div class="row">
 <h1>poe.trade multi-live</h1>
 <p>Place poe.trade search URLs in the box below. Any new items will be tracked here.</p>
-<p>Anything not starting with <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever. For now it's kind of hacky. The PM buttons don't work.</p>
+<p>Anything not starting with <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever. For now it's kind of hacky.</p>
 <textarea style="height: 20em;" id="multilive"></textarea>
 <p id="timer"></p>
 </div>
@@ -51,6 +51,7 @@ $(window).load(function() {
     var last_id = {};
     var refresh_num = 0;
     var last_beep = -1;
+    var found_ids = {};
 
     var autosave = localStorage.getItem("multilive");
     $("#multilive").val(JSON.parse(autosave));
@@ -58,13 +59,21 @@ $(window).load(function() {
     var dispatch_search = function(search, id) {
         $.getJSON("http://orlp.me/multilive", { "id": id, "search": search }, function(data) {
             last_id[search] = data["newid"];
-            if (data["data"] && last_beep < refresh_num) {
-                last_beep  = refresh_num;
+            var new_data = false;
+            if (data["data"]) {
+                new_data = !(last_id[search] in found_ids);
+                found_ids[last_id[search]] = 1;
+            }
+
+            if (new_data && last_beep < refresh_num) {
+                last_beep = refresh_num;
                 beep();
             }
 
-            $("#items").prepend(data["data"]);
-            $(".whisper-btn").unbind("click").click(sendWhisper);
+            if (new_data) {
+                $("#items").prepend(data["data"]);
+                $(".whisper-btn").unbind("click").click(sendWhisper);
+            }
         }).fail(function() {
             timer = 60;
         });
