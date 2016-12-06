@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.3
+// @version      0.4
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -30,7 +30,7 @@
 
     $(".form-choose-action .button-group").append('<li><a href="#" id="multilive-btn" class="button tiny secondary" onclick="return false;">Multilive</a></li>');
     $('<div class="custom" id="multilive" style="display: none;"><p>Place poe.trade search URLs in the box below, <b>one per line</b>. Any new items will be tracked here. It\'s suggested you write a short description on the same line, as this will be displayed on a match. For example:</p><p><pre>4mod essence drain jewel: http://poe.trade/search/abcdefghijklmnop</pre></p><p>Any line not containing <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever. You can use this also to temporarily disable an URL, by replacing <tt>http://</tt> with <tt>nope://</tt> or similar.</p><textarea style="height: 20em;" id="multilive-urls"></textarea><p>Account name blacklist, separated by commas:<input type="text" id="multilive-blacklist"></input></p></div>').insertAfter("#search");
-    $("#multilive").append('<div class=\"alert-box\" id=\"live-notification-settings\">\r\nNotification settings: <label for=\"live-notify-sound\">Notify with sound<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-sound\"> | <label for=\"live-notify-browser\">Notify with a browser notification<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-browser\">\r\n<a href=\"#\" class=\"right\" onclick=\"live_notify(); return false;\">test notification<\/a>\r\n<audio id=\"live-audio\">\r\n<source src=\"\/static\/notification.mp3\" type=\"audio\/mpeg\">\r\n<\/audio>\r\n<\/div>\r\n<div id="items"></div>');
+    $("#multilive").append('<div class=\"alert-box\" id=\"live-notification-settings\">\r\nNotification settings: <label for=\"live-notify-sound\">Notify with sound<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-sound\"> | <label for=\"live-notify-browser\">Notify with a browser notification<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-browser\"> <span style="padding-left: 2em;">Searches connected: <span id="multilive-connected">0/0</span></span>\r\n<a href=\"#\" class=\"right\" onclick=\"live_notify(); return false;\">test notification<\/a>\r\n<audio id=\"live-audio\">\r\n<source src=\"\/static\/notification.mp3\" type=\"audio\/mpeg\">\r\n<\/audio>\r\n<\/div>\r\n<div id="items" style="min-height: 1000px;"><h2 id="multilive-init-msg"><br>Results will be shown here.<br><br>This page intentionally left blank.</h2></div>');
 
     var url_autosave = GM_getValue("urls", '""');
     var blacklist_autosave = GM_getValue("blacklist", '""');
@@ -77,8 +77,9 @@
                     item = $(item);
                     var seller = item.attr('data-seller');
                     var description = search_lines[search].replace(/https?:\/\/poe.trade\/search\/([a-z]+)(\/live)?\/?/, "");
-                    item.find('.bottom-row .first-cell:empty').text(seller).css("color", "#aaa").css("font-size", "0.8em");
-                    var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa" target="_blank"></a>').text(strip_ws_separators(description));
+                    var profile = $('<a href="https://www.pathofexile.com/account/view-profile/'+seller+'" style="color: #aaa; font-size: 0.8em;" target="_blank"></a>').text(seller);
+                    item.find('.bottom-row .first-cell:empty').append(profile);
+                    var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa;" target="_blank"></a>').text(strip_ws_separators(description));
                     item.find('.bottom-row .third-cell:empty').append(link);
 
                     if (blacklist_accounts.indexOf($.trim(seller)) > -1) {
@@ -88,10 +89,10 @@
                 });
 
                 if (not_ignored_count > 0) {
+                    $("#multilive-init-msg").hide();
                     $("#items").prepend(new_html);
                     $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
                     live_notify();
-                    update_timers();
                 }
 
                 if (!is_focused) {
@@ -121,6 +122,15 @@
 
     var sockets = {};
 
+    var update_connected = function() {
+        var num_connected = 0;
+        for (var search in sockets) {
+            if (sockets[search].readyState == 1) num_connected += 1;
+        }
+
+        $("#multilive-connected").text(num_connected.toString() + "/" + searches.length.toString());
+    };
+
     var socket_heartbeat = function() {
         for (var search in sockets) {
             if (sockets[search].readyState == 1) sockets[search].send("ping");
@@ -130,6 +140,7 @@
     socket_heartbeat();
 
     var socket_onopen = function(event) {
+        update_connected();
         this.send('{"type": "version", "value": 2}');
     };
 
@@ -146,6 +157,7 @@
     };
 
     var socket_onclose = function(event) {
+        update_connected();
         var search = this.search;
         setTimeout(function() {
             if (!multilive_active) return;
@@ -178,6 +190,8 @@
         for (var search in sockets) {
             if (searches.indexOf(search) == -1) delete_socket(sockets[search]);
         }
+
+        update_connected();
     };
 
     var update_blacklist = function() {
@@ -216,16 +230,33 @@
 
     live_load_settings();
 
-    // Fix whisper button.
+    var info_heartbeat = function() {
+        setTimeout(info_heartbeat, 1000);
+        if (!multilive_active) return;
+
+        update_timers();
+    };
+    info_heartbeat();
+
+    // Fix whisper button and make big.
     var whisperClipboard = new Clipboard(".whisper-btn", {
-        text: function(trigger) {
-            return whisperMessage(trigger);
-        }
+        text: function(trigger) { return whisperMessage(trigger); }
     });
     whisperClipboard.on("success", function(e) {
         $(e.trigger).text("Copied to clipboard");
     });
     whisperClipboard.on("error", function(e) {
+        sendWhisper(e.trigger);
+    });
+
+    $("<style>.icon-td { cursor: pointer; }</style>").appendTo("head");
+    var big_whisper = new Clipboard(".icon-td", {
+        text: function(trigger) { return whisperMessage(trigger); }
+    });
+    big_whisper.on("success", function(e) {
+        $(e.trigger).parents(".item").find(".whisper-btn").text("Copied to clipboard");
+    });
+    big_whisper.on("error", function(e) {
         sendWhisper(e.trigger);
     });
 })();
