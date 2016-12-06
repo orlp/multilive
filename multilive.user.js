@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.2
+// @version      0.3
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
 // @require      https://code.jquery.com/jquery-3.1.1.min.js
 // @require      https://cdn.jsdelivr.net/clipboard.js/1.5.13/clipboard.min.js
+// @require      https://raw.githubusercontent.com/joewalnes/reconnecting-websocket/master/reconnecting-websocket.min.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
@@ -29,25 +30,20 @@
 
     $(".form-choose-action .button-group").append('<li><a href="#" id="multilive-btn" class="button tiny secondary" onclick="return false;">Multilive</a></li>');
     $('<div class="custom" id="multilive" style="display: none;"><p>Place poe.trade search URLs in the box below, <b>one per line</b>. Any new items will be tracked here. It\'s suggested you write a short description on the same line, as this will be displayed on a match. For example:</p><p><pre>4mod essence drain jewel: http://poe.trade/search/abcdefghijklmnop</pre></p><p>Any line not containing <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever. You can use this also to temporarily disable an URL, by replacing <tt>http://</tt> with <tt>nope://</tt> or similar.</p><textarea style="height: 20em;" id="multilive-urls"></textarea><p>Account name blacklist, separated by commas:<input type="text" id="multilive-blacklist"></input></p></div>').insertAfter("#search");
-    $("#multilive").append('<div class=\"alert-box live-search\">\r\n    Live search running.\r\n    Refresh every <select id=\"live-refresh-frequency\" onchange=\"live_update_settings();\">\r\n        <option value=\"1\">!! HFT MODE !!<\/option>\r\n        <option value=\"5\">5<\/option>\r\n        <option value=\"15\">15<\/option>\r\n        <option value=\"30\" selected=\"selected\">30<\/option>\r\n        <option value=\"60\">60<\/option>\r\n        <option value=\"90\">90<\/option>\r\n    <\/select> seconds.\r\n    <span id=\"live-status\"><\/span>\r\n<\/div>\r\n\r\n<div class=\"alert-box\" id=\"live-notification-settings\">\r\nNotification settings: <label for=\"live-notify-sound\">Notify with sound<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-sound\"> | <label for=\"live-notify-browser\">Notify with a browser notification<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-browser\">\r\n<a href=\"#\" class=\"right\" onclick=\"live_notify(); return false;\">test notification<\/a>\r\n<audio id=\"live-audio\">\r\n<source src=\"\/static\/notification.mp3\" type=\"audio\/mpeg\">\r\n<\/audio>\r\n<\/div>\r\n<div id="items"></div>');
+    $("#multilive").append('<div class=\"alert-box\" id=\"live-notification-settings\">\r\nNotification settings: <label for=\"live-notify-sound\">Notify with sound<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-sound\"> | <label for=\"live-notify-browser\">Notify with a browser notification<\/label> <input onclick=\"live_update_settings()\" type=\"checkbox\" id=\"live-notify-browser\">\r\n<a href=\"#\" class=\"right\" onclick=\"live_notify(); return false;\">test notification<\/a>\r\n<audio id=\"live-audio\">\r\n<source src=\"\/static\/notification.mp3\" type=\"audio\/mpeg\">\r\n<\/audio>\r\n<\/div>\r\n<div id="items"></div>');
 
     var url_autosave = GM_getValue("urls", '""');
     var blacklist_autosave = GM_getValue("blacklist", '""');
     $("#multilive-urls").val(JSON.parse(url_autosave));
     $("#multilive-blacklist").val(JSON.parse(blacklist_autosave));
 
-    var searches, search_lines, blacklist_accounts, last_id, refresh_num, last_beep, found_ids, time_to_refresh;
+    var searches, search_lines, blacklist_accounts;
     var init_multilive = function() {
         searches = [];
         search_lines = {};
-        update_searched();
         blacklist_accounts = [];
+        update_searched();
         update_blacklist();
-        last_id = {};
-        refresh_num = 0;
-        last_beep = -1;
-        found_ids = {};
-        time_to_refresh = 0;
     };
 
     // Item count favicon.
@@ -62,17 +58,20 @@
 
     var dispatch_search = function(search, id) {
         return $.post("http://poe.trade/search/" + search + "/live", { "id": id }, function(data) {
-            last_id[search] = data.newid;
-            var new_data = false;
-            if (data.data) {
-                new_data = !(last_id[search] in found_ids);
-                found_ids[last_id[search]] = 1;
+            if (data.uniqs && sockets[search].readyState == 1) {
+                var uniqs = data.uniqs;
+                for (var i = 0; i < uniqs.length; ++i) {
+                    sockets[search].send(JSON.stringify({
+                        type: "subscribe",
+                        value: uniqs[i]
+                    }));
+                }
             }
 
             if (!multilive_active) return;
 
             var not_ignored_count = data.count;
-            if (new_data) {
+            if (data.data) {
                 var new_html = $.parseHTML(data.data);
                 $(new_html).find('tbody.item').each(function(_, item) {
                     item = $(item);
@@ -90,11 +89,7 @@
 
                 if (not_ignored_count > 0) {
                     $("#items").prepend(new_html);
-                    $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops
-                }
-
-                if (not_ignored_count > 0 && last_beep < refresh_num) {
-                    last_beep = refresh_num;
+                    $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
                     live_notify();
                     update_timers();
                 }
@@ -105,44 +100,6 @@
                 }
             }
         });
-    };
-
-    var last_heartbeat_id = null;
-    var do_refresh = function() {
-        refresh_num += 1;
-
-        var queries = [];
-        for (var i = 0; i < searches.length; ++i) {
-            var id;
-            if (searches[i] in last_id) {
-                id = last_id[searches[i]];
-            } else {
-                id = -1;
-            }
-
-            queries.push(dispatch_search(searches[i], id));
-        }
-
-        $.when.apply($, queries).done(function() {
-            heartbeat();
-        }).fail(function() {
-            $("#live-status").text("Backend failed; retrying in 60s, or try refreshing the page.");
-            last_heartbeat_id = setTimeout(heartbeat, 60 * 1000);
-        });
-    };
-
-    var heartbeat = function() {
-        last_heartbeat_id = null;
-        if (!multilive_active) return;
-        if (time_to_refresh <= 0) {
-            time_to_refresh = parseInt($("#live-refresh-frequency").val());
-            $("#live-status").text("Updating...");
-            do_refresh();
-        } else {
-            $("#live-status").text("Next refresh in: " + time_to_refresh);
-            time_to_refresh -= 1;
-            last_heartbeat_id = setTimeout(heartbeat, 1000);
-        }
     };
 
     var update_searched = function() {
@@ -158,6 +115,69 @@
         });
 
         GM_setValue("urls", JSON.stringify(text));
+
+        update_sockets();
+    };
+
+    var sockets = {};
+
+    var socket_heartbeat = function() {
+        for (var search in sockets) {
+            if (sockets[search].readyState == 1) sockets[search].send("ping");
+        }
+        setTimeout(socket_heartbeat, 60 * 1000);
+    };
+    socket_heartbeat();
+
+    var socket_onopen = function(event) {
+        this.send('{"type": "version", "value": 2}');
+    };
+
+    var socket_onmessage = function(event) {
+        var msg = $.parseJSON(event.data);
+        switch (msg.type) {
+            case "notify":
+                dispatch_search(this.search, msg.value);
+                break;
+            case "del":
+                $(".item-live-" + msg.value).addClass("item-gone");
+                break;
+        }
+    };
+
+    var socket_onclose = function(event) {
+        var search = this.search;
+        setTimeout(function() {
+            if (!multilive_active) return;
+            create_socket(search);
+        }, 1000);
+    };
+
+    var create_socket = function(search) {
+        var socket = new WebSocket("ws://live.poe.trade/" + search);
+        sockets[search] = socket;
+        socket.search = search;
+        socket.onopen = socket_onopen;
+        socket.onmessage = socket_onmessage;
+        socket.onclose = socket_onclose;
+        socket.onerror = socket_onclose;
+    };
+
+    var delete_socket = function(socket) {
+        delete sockets[socket.search];
+        socket.onclose = function() { }; // Disable handler first.
+        socket.onerror = function() { };
+        socket.close();
+    };
+
+    var update_sockets = function() {
+        for (var i = 0; i < searches.length; ++i) {
+            if (!(searches[i] in sockets)) create_socket(searches[i]);
+        }
+
+        for (var search in sockets) {
+            if (searches.indexOf(search) == -1) delete_socket(sockets[search]);
+        }
     };
 
     var update_blacklist = function() {
@@ -172,7 +192,7 @@
     $("#multilive-urls").on("change keyup paste", update_searched);
     $("#multilive-blacklist").on("change keyup paste", update_blacklist);
 
-    $("#multilive-btn").click(function() {
+    var show_multilive = function() {
         $("#search").hide();
         $("#import").hide();
         $("#multilive").show();
@@ -181,19 +201,16 @@
         $(this).addClass("active");
         multilive_active = true;
         init_multilive();
-        heartbeat();
-    });
+    };
 
     var hide_multilive = function() {
         $("#multilive").hide();
         $("#multilive-btn").removeClass("active");
         multilive_active = false;
-        if (last_heartbeat_id !== null) {
-            clearTimeout(last_heartbeat_id);
-            last_heartbeat_id = null;
-        }
+        for (var search in sockets) delete_socket(sockets[search]);
     };
 
+    $("#multilive-btn").click(show_multilive);
     $("#search-btn").click(hide_multilive);
     $("#import-btn").click(hide_multilive);
 
