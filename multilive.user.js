@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.4
+// @version      0.5
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -56,8 +56,16 @@
         Tinycon.setBubble(0);
     });
 
-    var dispatch_search = function(search, id) {
+    var dispatch_search = function(search, id, retries) {
         return $.post("http://poe.trade/search/" + search + "/live", { "id": id }, function(data) {
+            if (!multilive_active) return;
+            if (!data.data) {
+                console.log("No data received, retrying!", search, id, data);
+                if (retries <= 0) return;
+                setTimeout(function() { dispatch_search(search, id, retries - 1); }, 1000);
+                return;
+            }
+
             if (data.uniqs && sockets[search].readyState == 1) {
                 var uniqs = data.uniqs;
                 for (var i = 0; i < uniqs.length; ++i) {
@@ -68,37 +76,34 @@
                 }
             }
 
-            if (!multilive_active) return;
-
             var not_ignored_count = data.count;
-            if (data.data) {
-                var new_html = $.parseHTML(data.data);
-                $(new_html).find('tbody.item').each(function(_, item) {
-                    item = $(item);
-                    var seller = item.attr('data-seller');
-                    var description = search_lines[search].replace(/https?:\/\/poe.trade\/search\/([a-z]+)(\/live)?\/?/, "");
-                    var profile = $('<a href="https://www.pathofexile.com/account/view-profile/'+seller+'" style="color: #aaa; font-size: 0.8em;" target="_blank"></a>').text(seller);
-                    item.find('.bottom-row .first-cell:empty').append(profile);
-                    var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa;" target="_blank"></a>').text(strip_ws_separators(description));
-                    item.find('.bottom-row .third-cell:empty').append(link);
+            var new_html = $.parseHTML(data.data);
+            $(new_html).find('tbody.item').each(function(_, item) {
+                item = $(item);
+                var seller = item.attr('data-seller');
+                var description = search_lines[search].replace(/https?:\/\/poe.trade\/search\/([a-z]+)(\/live)?\/?/, "");
+                var profile = $('<a href="https://www.pathofexile.com/account/view-profile/'+seller+'" style="color: #aaa; font-size: 0.8em;" target="_blank"></a>').text(seller);
+                item.find('.bottom-row .first-cell:empty').append(profile);
+                var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa;" target="_blank"></a>').text(strip_ws_separators(description));
+                item.find('.bottom-row .third-cell:empty').append(link);
 
-                    if (blacklist_accounts.indexOf($.trim(seller)) > -1) {
-                        item.hide().remove();
-                        not_ignored_count -= 1;
-                    }
-                });
-
-                if (not_ignored_count > 0) {
-                    $("#multilive-init-msg").hide();
-                    $("#items").prepend(new_html);
-                    $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
-                    live_notify();
+                if (blacklist_accounts.indexOf($.trim(seller)) > -1) {
+                    console.log("blacklisted", item, seller);
+                    item.hide().remove();
+                    not_ignored_count -= 1;
                 }
+            });
 
-                if (!is_focused) {
-                    displayed_item_count += not_ignored_count;
-                    Tinycon.setBubble(displayed_item_count);
-                }
+            if (not_ignored_count > 0) {
+                $("#multilive-init-msg").hide();
+                $("#items").prepend(new_html);
+                $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
+                live_notify();
+            }
+
+            if (!is_focused) {
+                displayed_item_count += not_ignored_count;
+                Tinycon.setBubble(displayed_item_count);
             }
         });
     };
@@ -135,9 +140,8 @@
         for (var search in sockets) {
             if (sockets[search].readyState == 1) sockets[search].send("ping");
         }
-        setTimeout(socket_heartbeat, 60 * 1000);
     };
-    socket_heartbeat();
+    setInterval(socket_heartbeat, 30 * 1000);
 
     var socket_onopen = function(event) {
         update_connected();
@@ -146,9 +150,13 @@
 
     var socket_onmessage = function(event) {
         var msg = $.parseJSON(event.data);
+        if (typeof msg == "number") {
+            dispatch_search(this.search, msg, 30);
+            return;
+        }
         switch (msg.type) {
             case "notify":
-                dispatch_search(this.search, msg.value);
+                dispatch_search(this.search, msg.value, 30);
                 break;
             case "del":
                 $(".item-live-" + msg.value).addClass("item-gone");
