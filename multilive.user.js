@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.5
+// @version      0.6
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -37,10 +37,13 @@
     $("#multilive-urls").val(JSON.parse(url_autosave));
     $("#multilive-blacklist").val(JSON.parse(blacklist_autosave));
 
-    var searches, search_lines, blacklist_accounts;
+    var searches, search_lines, blacklist_accounts, last_known_id, last_found_id, currently_searching;
     var init_multilive = function() {
         searches = [];
         search_lines = {};
+        last_known_id = {};
+        last_found_id = {};
+        currently_searching = {};
         blacklist_accounts = [];
         update_searched();
         update_blacklist();
@@ -56,15 +59,15 @@
         Tinycon.setBubble(0);
     });
 
-    var dispatch_search = function(search, id, retries) {
-        return $.post("http://poe.trade/search/" + search + "/live", { "id": id }, function(data) {
+    var dispatch_search = function(search) {
+        if (currently_searching[search]) return;
+        if (last_found_id[search] >= last_known_id[search]) return;
+
+        currently_searching[search] = true;
+        $.post("http://poe.trade/search/" + search + "/live", { "id": last_found_id[search] }, function(data) {
             if (!multilive_active) return;
-            if (!data.data) {
-                console.log("No data received, retrying!", search, id, data);
-                if (retries <= 0) return;
-                setTimeout(function() { dispatch_search(search, id, retries - 1); }, 1000);
-                return;
-            }
+
+            last_found_id[search] = data.newid;
 
             if (data.uniqs && sockets[search].readyState == 1) {
                 var uniqs = data.uniqs;
@@ -105,6 +108,12 @@
                 displayed_item_count += not_ignored_count;
                 Tinycon.setBubble(displayed_item_count);
             }
+
+            currently_searching[search] = false;
+            dispatch_search(search);
+        }).fail(function() {
+            currently_searching[search] = false;
+            setTimeout(function() { dispatch_search(search); }, 1000);
         });
     };
 
@@ -151,12 +160,14 @@
     var socket_onmessage = function(event) {
         var msg = $.parseJSON(event.data);
         if (typeof msg == "number") {
-            dispatch_search(this.search, msg, 30);
+            last_known_id[this.search] = Math.max(last_known_id[this.search], msg);
+            dispatch_search(this.search);
             return;
         }
         switch (msg.type) {
             case "notify":
-                dispatch_search(this.search, msg.value, 30);
+                last_known_id[this.search] = Math.max(last_known_id[this.search], msg.value);
+                dispatch_search(this.search);
                 break;
             case "del":
                 $(".item-live-" + msg.value).addClass("item-gone");
@@ -181,6 +192,8 @@
         socket.onmessage = socket_onmessage;
         socket.onclose = socket_onclose;
         socket.onerror = socket_onclose;
+        last_known_id[search] = -1;
+        last_found_id[search] = -1;
     };
 
     var delete_socket = function(socket) {
@@ -188,6 +201,8 @@
         socket.onclose = function() { }; // Disable handler first.
         socket.onerror = function() { };
         socket.close();
+        delete last_known_id[socket.search];
+        delete last_found_id[socket.search];
     };
 
     var update_sockets = function() {
