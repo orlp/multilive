@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.6
+// @version      0.7
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -47,6 +47,8 @@
         blacklist_accounts = [];
         update_searched();
         update_blacklist();
+
+        for (var i = 0; i < searches.length; ++i) dispatch_search(searches[i]);
     };
 
     // Item count favicon.
@@ -61,7 +63,6 @@
 
     var dispatch_search = function(search) {
         if (currently_searching[search]) return;
-        if (last_found_id[search] >= last_known_id[search]) return;
 
         currently_searching[search] = true;
         $.post("http://poe.trade/search/" + search + "/live", { "id": last_found_id[search] }, function(data) {
@@ -110,10 +111,12 @@
             }
 
             currently_searching[search] = false;
-            dispatch_search(search);
+            if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
         }).fail(function() {
             currently_searching[search] = false;
-            setTimeout(function() { dispatch_search(search); }, 1000);
+            setTimeout(function() {
+                if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
+            }, 1000);
         });
     };
 
@@ -154,7 +157,7 @@
 
     var socket_onopen = function(event) {
         update_connected();
-        this.send('{"type": "version", "value": 2}');
+        this.send('{"type": "version", "value": 3}');
     };
 
     var socket_onmessage = function(event) {
