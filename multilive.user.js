@@ -49,7 +49,6 @@
         update_blacklist();
 
         for (var i = 0; i < searches.length; ++i) dispatch_search(searches[i]);
-        console.log("init done");
     };
 
     // Item count favicon.
@@ -69,6 +68,12 @@
         $.post("http://poe.trade/search/" + search + "/live", { "id": last_found_id[search] }, function(data) {
             if (!multilive_active) return;
 
+            if (data.data) {
+                console.log("found", last_found_id[search], "with data", search, "newid", data.newid);
+            } else {
+                console.log("found", last_found_id[search], "without data", search, "newid", data.newid);
+            }
+
             last_found_id[search] = data.newid;
 
             if (data.uniqs && sockets[search].readyState == 1) {
@@ -82,7 +87,6 @@
             }
 
             if (data.data) {
-                console.log("found with data", search);
                 var not_ignored_count = data.count;
                 var new_html = $.parseHTML(data.data);
                 $(new_html).find('tbody.item').each(function(_, item) {
@@ -112,8 +116,6 @@
                     displayed_item_count += not_ignored_count;
                     Tinycon.setBubble(displayed_item_count);
                 }
-            } else {
-                console.log("found without data", search);
             }
 
             currently_searching[search] = false;
@@ -188,7 +190,7 @@
         }
         switch (msg.type) {
             case "notify":
-            console.log("notify", this.search, last_known_id[this.search], "->", msg.value);
+                console.log("notify", this.search, last_known_id[this.search], "->", msg.value);
                 last_known_id[this.search] = Math.max(last_known_id[this.search], msg.value);
                 dispatch_search(this.search);
                 break;
