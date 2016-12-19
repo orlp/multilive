@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.7
+// @version      0.8
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -49,6 +49,7 @@
         update_blacklist();
 
         for (var i = 0; i < searches.length; ++i) dispatch_search(searches[i]);
+        console.log("init done");
     };
 
     // Item count favicon.
@@ -80,45 +81,57 @@
                 }
             }
 
-            var not_ignored_count = data.count;
-            var new_html = $.parseHTML(data.data);
-            $(new_html).find('tbody.item').each(function(_, item) {
-                item = $(item);
-                var seller = item.attr('data-seller');
-                var description = search_lines[search].replace(/https?:\/\/poe.trade\/search\/([a-z]+)(\/live)?\/?/, "");
-                var profile = $('<a href="https://www.pathofexile.com/account/view-profile/'+seller+'" style="color: #aaa; font-size: 0.8em;" target="_blank"></a>').text(seller);
-                item.find('.bottom-row .first-cell:empty').append(profile);
-                var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa;" target="_blank"></a>').text(strip_ws_separators(description));
-                item.find('.bottom-row .third-cell:empty').append(link);
+            if (data.data) {
+                console.log("found with data", search);
+                var not_ignored_count = data.count;
+                var new_html = $.parseHTML(data.data);
+                $(new_html).find('tbody.item').each(function(_, item) {
+                    item = $(item);
+                    var seller = item.attr('data-seller');
+                    var description = search_lines[search].replace(/https?:\/\/poe.trade\/search\/([a-z]+)(\/live)?\/?/, "");
+                    var profile = $('<a href="https://www.pathofexile.com/account/view-profile/'+seller+'" style="color: #aaa; font-size: 0.8em;" target="_blank"></a>').text(seller);
+                    item.find('.bottom-row .first-cell:empty').append(profile);
+                    var link = $('<a href="http://poe.trade/search/'+search+'" style="color: #aaa;" target="_blank"></a>').text(strip_ws_separators(description));
+                    item.find('.bottom-row .third-cell:empty').append(link);
 
-                if (blacklist_accounts.indexOf($.trim(seller)) > -1) {
-                    console.log("blacklisted", item, seller);
-                    item.hide().remove();
-                    not_ignored_count -= 1;
+                    if (blacklist_accounts.indexOf($.trim(seller)) > -1) {
+                        console.log("blacklisted", item, seller);
+                        item.hide().remove();
+                        not_ignored_count -= 1;
+                    }
+                });
+
+                if (not_ignored_count > 0) {
+                    $("#multilive-init-msg").hide();
+                    $("#items").prepend(new_html);
+                    $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
+                    live_notify();
                 }
-            });
 
-            if (not_ignored_count > 0) {
-                $("#multilive-init-msg").hide();
-                $("#items").prepend(new_html);
-                $("#items > div").filter(":gt(100)").hide().remove(); // Remove old woops.
-                live_notify();
-            }
-
-            if (!is_focused) {
-                displayed_item_count += not_ignored_count;
-                Tinycon.setBubble(displayed_item_count);
+                if (!is_focused) {
+                    displayed_item_count += not_ignored_count;
+                    Tinycon.setBubble(displayed_item_count);
+                }
+            } else {
+                console.log("found without data", search);
             }
 
             currently_searching[search] = false;
-            if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
+            //if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
         }).fail(function() {
+            console.log("error while retrieving data", search);
             currently_searching[search] = false;
-            setTimeout(function() {
-                if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
-            }, 1000);
+            //setTimeout(function() {
+            //    if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
+            //}, 1000);
         });
     };
+
+    setInterval(function() {
+        for (var search in last_found_id) {
+            if (last_found_id[search] < last_known_id[search]) dispatch_search(search);
+        }
+    }, 1000);
 
     var update_searched = function() {
         var text = $("#multilive-urls").val();
@@ -129,6 +142,11 @@
             if (search) {
                 searches.push(search[1]);
                 search_lines[search[1]] = line;
+
+                if (!(search[1] in last_known_id)) {
+                    last_known_id[search[1]] = -1;
+                    last_found_id[search[1]] = -1;
+                }
             }
         });
 
@@ -163,12 +181,14 @@
     var socket_onmessage = function(event) {
         var msg = $.parseJSON(event.data);
         if (typeof msg == "number") {
+            console.log("notify", this.search, last_known_id[this.search], "->", msg);
             last_known_id[this.search] = Math.max(last_known_id[this.search], msg);
             dispatch_search(this.search);
             return;
         }
         switch (msg.type) {
             case "notify":
+            console.log("notify", this.search, last_known_id[this.search], "->", msg.value);
                 last_known_id[this.search] = Math.max(last_known_id[this.search], msg.value);
                 dispatch_search(this.search);
                 break;
@@ -195,8 +215,6 @@
         socket.onmessage = socket_onmessage;
         socket.onclose = socket_onclose;
         socket.onerror = socket_onclose;
-        last_known_id[search] = -1;
-        last_found_id[search] = -1;
     };
 
     var delete_socket = function(socket) {
@@ -204,8 +222,6 @@
         socket.onclose = function() { }; // Disable handler first.
         socket.onerror = function() { };
         socket.close();
-        delete last_known_id[socket.search];
-        delete last_found_id[socket.search];
     };
 
     var update_sockets = function() {
