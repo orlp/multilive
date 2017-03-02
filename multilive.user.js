@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.8
+// @version      0.9
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -47,8 +47,6 @@
         blacklist_accounts = [];
         update_searched();
         update_blacklist();
-
-        for (var i = 0; i < searches.length; ++i) dispatch_search(searches[i]);
     };
 
     // Item count favicon.
@@ -228,7 +226,10 @@
 
     var update_sockets = function() {
         for (var i = 0; i < searches.length; ++i) {
-            if (!(searches[i] in sockets)) create_socket(searches[i]);
+            if (!(searches[i] in sockets)) {
+                create_socket(searches[i]);
+                dispatch_search(searches[i]);
+            }
         }
 
         for (var search in sockets) {
