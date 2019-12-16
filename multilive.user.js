@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PoE Multilive
 // @namespace    orlp
-// @version      0.9
+// @version      0.10
 // @description  Combine multiple PoE live searches
 // @author       orlp
 // @match        *://poe.trade/
@@ -27,6 +27,8 @@
         return str.replace(/[ \t\n:;|\/\\=@#$%^&*-]*$/,"")
             .replace(/^[ \t\n:;|\/\\=@#$%^&*-]*/,"");
     };
+
+    $("#main").css("margin-top", "0");
 
     $(".form-choose-action .button-group").append('<li><a href="#" id="multilive-btn" class="button tiny secondary" onclick="return false;">Multilive</a></li>');
     $('<div class="custom" id="multilive" style="display: none;"><p>Place poe.trade search URLs in the box below, <b>one per line</b>. Any new items will be tracked here. It\'s suggested you write a short description on the same line, as this will be displayed on a match. For example:</p><p><pre>4mod essence drain jewel: http://poe.trade/search/abcdefghijklmnop</pre></p><p>Any line not containing <code>http://poe.trade</code> will be ignored, so you are free to put comments explaining what the URLs are wherever. You can use this also to temporarily disable an URL, by replacing <tt>http://</tt> with <tt>nope://</tt> or similar.</p><textarea style="height: 20em;" id="multilive-urls"></textarea><p>Account name blacklist, separated by commas:<input type="text" id="multilive-blacklist"></input></p></div>').insertAfter("#search");
@@ -63,7 +65,7 @@
         if (currently_searching[search]) return;
 
         currently_searching[search] = true;
-        $.post("http://poe.trade/search/" + search + "/live", { "id": last_found_id[search] }, function(data) {
+        $.post("https://poe.trade/search/" + search + "/live", { "id": last_found_id[search] }, function(data) {
             if (!multilive_active) return;
 
             if (data.data) {
@@ -208,7 +210,7 @@
     };
 
     var create_socket = function(search) {
-        var socket = new WebSocket("ws://live.poe.trade/" + search);
+        var socket = new WebSocket("wss://live.poe.trade/" + search);
         sockets[search] = socket;
         socket.search = search;
         socket.onopen = socket_onopen;
